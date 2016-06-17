@@ -52,12 +52,18 @@
 //!
 
 use std::sync::Arc;
+use status::Status;
 use {Request, Response, IronResult, IronError};
 
 /// `Handler`s are responsible for handling requests by creating Responses from Requests.
 pub trait Handler: Send + Sync + 'static {
     /// Produce a `Response` from a Request, with the possibility of error.
     fn handle(&self, &mut Request) -> IronResult<Response>;
+
+    /// Make decision for "Expect: 100-continue" requests.
+    fn check_continue(&self, &Request) -> Option<Status> {
+        None
+    }
 }
 
 /// `BeforeMiddleware` are fired before a `Handler` is called inside of a Chain.
@@ -316,6 +322,10 @@ where F: Send + Sync + 'static + Fn(&mut Request) -> IronResult<Response> {
 impl Handler for Box<Handler> {
     fn handle(&self, req: &mut Request) -> IronResult<Response> {
         (**self).handle(req)
+    }
+
+    fn check_continue(&self, req: &Request) -> Option<Status> {
+        (**self).check_continue(req)
     }
 }
 

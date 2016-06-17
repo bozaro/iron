@@ -68,33 +68,8 @@ impl<'a, 'b> Request<'a, 'b> {
     /// This constructor consumes the HttpRequest.
     pub fn from_http(req: HttpRequest<'a, 'b>, local_addr: SocketAddr, protocol: &Protocol)
                      -> Result<Request<'a, 'b>, String> {
-        let (addr, method, headers, uri, _, reader) = req.deconstruct();
-
-        let url = match uri {
-            AbsoluteUri(ref url) => {
-                match Url::from_generic_url(url.clone()) {
-                    Ok(url) => url,
-                    Err(e) => return Err(e)
-                }
-            },
-
-            AbsolutePath(ref path) => {
-                // Attempt to prepend the Host header (mandatory in HTTP/1.1)
-                let url_string = match headers.get::<headers::Host>() {
-                    Some(ref host) => {
-                        format!("{}://{}:{}{}", protocol.name(), host.hostname, local_addr.port(),
-                                path)
-                    },
-                    None => return Err("No host specified in request".into())
-                };
-
-                match Url::parse(&url_string) {
-                    Ok(url) => url,
-                    Err(e) => return Err(format!("Couldn't parse requested URL: {}", e))
-                }
-            },
-            _ => return Err("Unsupported request URI".into())
-        };
+        let url = try! (Request::prepare_uri(&req, local_addr, protocol));
+        let (addr, method, headers, _, _, reader) = req.deconstruct();
 
         Ok(Request {
             url: url,
@@ -106,21 +81,61 @@ impl<'a, 'b> Request<'a, 'b> {
             extensions: TypeMap::new()
         })
     }
+
+    /// Create a request from an incompleted HttpRequest.
+    pub fn from_header(req: &HttpRequest, local_addr: SocketAddr, protocol: &Protocol) -> Result<Request<'static, 'static>, String> {
+        let url = try! (Request::prepare_uri(&req, local_addr, protocol));
+        Ok(Request {
+            url: url,
+            remote_addr: req.remote_addr,
+            local_addr: local_addr,
+            headers: req.headers.clone(),
+            body: Body::empty(),
+            method: req.method.clone(),
+            extensions: TypeMap::new()
+        })
+    }
+
+    fn prepare_uri(req: &HttpRequest, local_addr: SocketAddr, protocol: &Protocol) -> Result<Url, String> {
+        match &req.uri {
+            &AbsoluteUri(ref url) => {
+                Url::from_generic_url(url.clone())
+            },
+            &AbsolutePath(ref path) => {
+                // Attempt to prepend the Host header (mandatory in HTTP/1.1)
+                match req.headers.get::<headers::Host>() {
+                    Some(ref host) => {
+                        let url_string = format!("{}://{}:{}{}", protocol.name(), host.hostname, local_addr.port(),
+                                path);
+                        Url::parse(&url_string)
+                    },
+                    None => Err("No host specified in request".into())
+                }
+            },
+            _ => Err("Unsupported request URI".into())
+        }
+    }
 }
 
 /// The body of an Iron request,
-pub struct Body<'a, 'b: 'a>(HttpReader<&'a mut buffer::BufReader<&'b mut NetworkStream>>);
+pub struct Body<'a, 'b: 'a>(Option<HttpReader<&'a mut buffer::BufReader<&'b mut NetworkStream>>>);
 
 impl<'a, 'b> Body<'a, 'b> {
     /// Create a new reader for use in an Iron request from a hyper HttpReader.
     pub fn new(reader: HttpReader<&'a mut buffer::BufReader<&'b mut NetworkStream>>) -> Body<'a, 'b> {
-        Body(reader)
+        Body(Some(reader))
+    }
+
+    /// Create a new fake reader.
+    pub fn empty() -> Body<'a, 'b> {
+        Body(None)
     }
 }
 
 impl<'a, 'b> Read for Body<'a, 'b> {
     fn read(&mut self, buf: &mut [u8]) -> io::Result<usize> {
-        self.0.read(buf)
+        self.0.as_mut().ok_or(io::Error::new(io::ErrorKind::InvalidInput, "This request don't have body yet"))
+            .and_then(|ref mut r| r.read(buf))
     }
 }
 

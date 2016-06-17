@@ -35,7 +35,9 @@ lazy_static = "0.1"
 num_cpus = "0.2"
 
 [dependencies.hyper]
-version = "0.9"
+version = "0.9.8"
+git = "https://github.com/bozaro/hyper.git"
+rev = "7c73562"
 default-features = false
 
 [dev-dependencies]

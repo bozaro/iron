@@ -8,6 +8,7 @@ use std::path::PathBuf;
 
 pub use hyper::server::Listening;
 use hyper::server::Server;
+use hyper::status::StatusCode;
 use hyper::net::Fresh;
 
 use request::HttpRequest;
@@ -202,6 +203,20 @@ impl<H: Handler> ::hyper::server::Handler for Iron<H> {
             Err(e) => {
                 error!("Error creating request:\n    {}", e);
                 bad_request(http_res)
+            }
+        }
+    }
+
+    fn check_continue(&self, http_req: &HttpRequest) -> StatusCode {
+        match Request::from_header(&http_req, self.addr.clone().unwrap(),
+                                   self.protocol.as_ref().unwrap()) {
+            Ok(req) => {
+                // Dispatch the request, write the response back to http_res
+                self.handler.check_continue(&req).unwrap_or(StatusCode::Continue)
+            },
+            Err(e) => {
+                error!("Error creating request:\n    {}", e);
+                StatusCode::InternalServerError
             }
         }
     }

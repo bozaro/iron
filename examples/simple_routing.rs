@@ -8,6 +8,7 @@ use std::collections::HashMap;
 use iron::prelude::*;
 use iron::{Handler};
 use iron::status;
+use iron::status::Status;
 
 struct Router {
     // Routes here are simply matched with the url path.
@@ -29,6 +30,16 @@ impl Handler for Router {
         match self.routes.get(&req.url.path().join("/")) {
             Some(handler) => handler.handle(req),
             None => Ok(Response::with(status::NotFound))
+        }
+    }
+
+    // Optional check for uploading data with "Expect: 100-continue" header
+    fn check_continue(&self, req: &Request) -> Option<Status> {
+        match self.routes.get(&req.url.path().join("/")) {
+            // Default action - continue
+            Some(_) => None,
+            // Don't receive client request body
+            None => Some(status::NotFound)
         }
     }
 }
